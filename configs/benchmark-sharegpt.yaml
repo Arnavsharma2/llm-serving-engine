@@ -1,0 +1,15 @@
+# Right-skewed proxy for public chat traces. The exact sampled workload is fixed by seed.
+requests: 100
+arrival_rate: 2.0
+seed: 7
+vocabulary_size: 32000
+prompt:
+  median: 128
+  sigma: 0.9
+  minimum: 8
+  maximum: 1024
+output:
+  median: 64
+  sigma: 0.7
+  minimum: 4
+  maximum: 256

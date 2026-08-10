@@ -1,0 +1,44 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "llm-serving-engine"
+version = "0.1.0"
+description = "A from-scratch PyTorch LLM inference engine with paged KV caching and continuous batching."
+readme = "README.md"
+requires-python = ">=3.10,<3.14"
+license = { text = "MIT" }
+authors = [{ name = "Ari Shapiro" }]
+dependencies = [
+  "torch>=2.2",
+  "numpy>=1.26",
+  "pydantic>=2.6",
+  "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+serve = ["fastapi>=0.110", "uvicorn[standard]>=0.27", "prometheus-client>=0.20"]
+models = ["transformers>=4.46", "safetensors>=0.4", "huggingface-hub>=0.25"]
+eval = ["datasets>=2.19", "matplotlib>=3.8", "pynvml>=11.5"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "httpx>=0.27", "ruff>=0.6"]
+all = [
+  "llm-serving-engine[serve,models,eval,dev]",
+]
+
+[project.scripts]
+llmserve = "llmserve.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/llmserve"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
