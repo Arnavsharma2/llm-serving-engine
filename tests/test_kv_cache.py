@@ -56,3 +56,19 @@ def test_cache_writes_and_reads_in_logical_order() -> None:
     blocks = list(cache.iter_kv_blocks(0, "s"))
     assert [block[0].shape[0] for block in blocks] == [2, 1]
     assert torch.cat([block[0] for block in blocks])[:, 0, 0].tolist() == [0, 1, 2]
+
+
+def test_cache_materializes_only_block_table_metadata() -> None:
+    cache = PagedKVCache(config(), CacheConfig(block_size=2, num_blocks=8))
+    cache.create("short")
+    cache.create("long")
+    cache.reserve_token("short")
+    for _ in range(3):
+        cache.reserve_token("long")
+
+    block_tables, lengths = cache.block_table_tensors(["short", "long"])
+
+    assert block_tables.dtype == torch.int32
+    assert lengths.dtype == torch.int32
+    assert block_tables.tolist() == [[0, -1], [1, 2]]
+    assert lengths.tolist() == [1, 3]

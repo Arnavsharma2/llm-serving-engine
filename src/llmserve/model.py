@@ -8,6 +8,7 @@ from torch.nn import functional as F
 
 from llmserve.config import ModelConfig
 from llmserve.kv_cache import CacheSlot, PagedKVCache
+from llmserve.triton_kernels import paged_attention_decode
 
 
 class RMSNorm(nn.Module):
@@ -100,9 +101,29 @@ class Attention(nn.Module):
         sequence_ids: list[str],
         slots: list[CacheSlot],
         cache: PagedKVCache,
+        *,
+        backend: str = "pytorch",
+        block_tables: torch.Tensor | None = None,
+        sequence_lengths: torch.Tensor | None = None,
     ) -> torch.Tensor:
         queries, keys, values = self._project(inputs, positions[:, None])
         cache.write(self.layer_index, slots, keys[:, 0], values[:, 0])
+
+        if backend == "triton":
+            if block_tables is None or sequence_lengths is None:
+                raise ValueError("Triton attention requires block tables and sequence lengths")
+            output = paged_attention_decode(
+                queries[:, 0].contiguous(),
+                cache.storage[self.layer_index, 0],
+                cache.storage[self.layer_index, 1],
+                block_tables,
+                sequence_lengths,
+                block_size=cache.config.block_size,
+                scale=1.0 / math.sqrt(self.config.head_dim),
+            )
+            return self.o_proj(output.reshape(inputs.shape))
+        if backend != "pytorch":
+            raise ValueError(f"unknown paged-attention backend: {backend}")
 
         # Online softmax over physical blocks. This is a deliberately readable PyTorch
         # implementation of paged attention: no contiguous per-sequence KV tensor is built.
@@ -167,9 +188,20 @@ class DecoderLayer(nn.Module):
         sequence_ids: list[str],
         slots: list[CacheSlot],
         cache: PagedKVCache,
+        *,
+        backend: str = "pytorch",
+        block_tables: torch.Tensor | None = None,
+        sequence_lengths: torch.Tensor | None = None,
     ) -> torch.Tensor:
         attention = self.self_attn.forward_paged(
-            self.input_layernorm(inputs), positions, sequence_ids, slots, cache
+            self.input_layernorm(inputs),
+            positions,
+            sequence_ids,
+            slots,
+            cache,
+            backend=backend,
+            block_tables=block_tables,
+            sequence_lengths=sequence_lengths,
         )
         inputs = inputs + attention
         return inputs + self.mlp(self.post_attention_layernorm(inputs))
@@ -215,10 +247,24 @@ class Transformer(nn.Module):
         sequence_ids: list[str],
         slots: list[CacheSlot],
         cache: PagedKVCache,
+        *,
+        backend: str = "pytorch",
     ) -> torch.Tensor:
         if token_ids.ndim != 1:
             raise ValueError("paged decode accepts exactly one token per active sequence")
+        block_tables = sequence_lengths = None
+        if backend == "triton":
+            block_tables, sequence_lengths = cache.block_table_tensors(sequence_ids)
         hidden = self.embed_tokens(token_ids)[:, None, :]
         for layer in self.layers:
-            hidden = layer.forward_paged(hidden, positions, sequence_ids, slots, cache)
+            hidden = layer.forward_paged(
+                hidden,
+                positions,
+                sequence_ids,
+                slots,
+                cache,
+                backend=backend,
+                block_tables=block_tables,
+                sequence_lengths=sequence_lengths,
+            )
         return self.lm_head(self.norm(hidden[:, 0]))

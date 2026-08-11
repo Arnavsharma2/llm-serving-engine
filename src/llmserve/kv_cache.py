@@ -175,6 +175,30 @@ class PagedKVCache:
                 break
         self._touch(sequence)
 
+    def block_table_tensors(
+        self, sequence_ids: list[str]
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Materialize only block-table metadata for a fused paged-attention kernel."""
+
+        if not sequence_ids:
+            raise ValueError("sequence_ids cannot be empty")
+        sequences = [self.sequences[sequence_id] for sequence_id in sequence_ids]
+        max_blocks = max(len(sequence.block_table) for sequence in sequences)
+        block_tables = torch.full(
+            (len(sequences), max_blocks),
+            -1,
+            device=self.device,
+            dtype=torch.int32,
+        )
+        for row, sequence in enumerate(sequences):
+            block_tables[row, : len(sequence.block_table)] = torch.tensor(
+                sequence.block_table, device=self.device, dtype=torch.int32
+            )
+        lengths = torch.tensor(
+            [sequence.length for sequence in sequences], device=self.device, dtype=torch.int32
+        )
+        return block_tables, lengths
+
     def free(self, sequence_id: str) -> None:
         sequence = self.sequences.pop(sequence_id)
         for block in sequence.block_table:

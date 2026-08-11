@@ -13,6 +13,7 @@ from llmserve.kv_cache import CacheFullError, PagedKVCache
 from llmserve.model import Transformer
 from llmserve.scheduler import IterationScheduler, RequestState, TokenCallback
 from llmserve.tokenizer import Tokenizer
+from llmserve.triton_kernels import is_triton_paged_attention_available
 
 
 @dataclass(frozen=True)
@@ -83,6 +84,7 @@ class LLMEngine:
         cache_config: CacheConfig | None = None,
         scheduler_config: SchedulerConfig | None = None,
         scheduler_mode: str = "continuous",
+        paged_attention_backend: str = "pytorch",
         device: torch.device | str = "cpu",
         dtype: torch.dtype = torch.float32,
     ) -> None:
@@ -96,6 +98,18 @@ class LLMEngine:
             scheduler_config.max_batch_size, scheduler_config.policy, scheduler_mode
         )
         self.scheduler_config = scheduler_config
+        if paged_attention_backend not in {"pytorch", "triton"}:
+            raise ValueError("paged_attention_backend must be pytorch or triton")
+        if paged_attention_backend == "triton":
+            if dtype != torch.float16:
+                raise TypeError("Triton paged attention requires dtype=torch.float16")
+            if cache_config.block_size != 16:
+                raise ValueError("Triton paged attention requires cache block_size=16")
+            if not is_triton_paged_attention_available(self.device):
+                raise RuntimeError(
+                    "Triton paged attention requires a CUDA GPU with compute capability 7.5+"
+                )
+        self.paged_attention_backend = paged_attention_backend
         self._incoming: asyncio.Queue[RequestState] = asyncio.Queue()
         self._worker: asyncio.Task[None] | None = None
         self._closed = False
@@ -183,7 +197,12 @@ class LLMEngine:
         token_ids = torch.tensor([item.next_input_token for item in active], device=self.device)
         positions = torch.tensor([item.processed_tokens for item in active], device=self.device)
         logits = self.model.forward_paged(
-            token_ids, positions, [item.request_id for item in active], slots, self.cache
+            token_ids,
+            positions,
+            [item.request_id for item in active],
+            slots,
+            self.cache,
+            backend=self.paged_attention_backend,
         )
         completed: list[RequestState] = []
         for row, request in enumerate(active):
