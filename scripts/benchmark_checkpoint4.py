@@ -442,6 +442,7 @@ def write_checksums(paths: list[Path], destination: Path) -> None:
 async def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="Qwen/Qwen2.5-1.5B")
+    parser.add_argument("--backends", choices=BACKENDS, nargs="+", default=list(BACKENDS))
     parser.add_argument("--batch-sizes", type=int, nargs="+", default=[1, 2, 4, 8])
     parser.add_argument("--repetitions", type=int, default=5)
     parser.add_argument("--micro-iterations", type=int, default=10)
@@ -451,6 +452,8 @@ async def main() -> None:
     parser.add_argument("--output", default="artifacts/checkpoint4-t4.json")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--source-revision")
+    parser.add_argument("--skip-end-to-end", action="store_true")
+    parser.add_argument("--skip-micro", action="store_true")
     args = parser.parse_args()
     if args.repetitions < 5:
         raise ValueError("Checkpoint 4 requires at least five repetitions")
@@ -528,7 +531,9 @@ async def main() -> None:
         )
         for row in rows
     }
-    for backend in BACKENDS:
+    for backend in args.backends:
+        if args.skip_end_to_end:
+            break
         missing = [
             (experiment, repeat)
             for experiment in experiments
@@ -580,9 +585,9 @@ async def main() -> None:
         (str(row["backend"]), str(row["shape"]), int(row["rows"]), int(row["repeat"]))
         for row in micro_rows
     }
-    for shape_name, in_features, out_features in MAJOR_SHAPES:
+    for shape_name, in_features, out_features in (() if args.skip_micro else MAJOR_SHAPES):
         for activation_rows in args.micro_rows:
-            for backend in BACKENDS:
+            for backend in args.backends:
                 if all(
                     (backend, shape_name, activation_rows, repeat) in completed_micro
                     for repeat in range(args.repetitions)
