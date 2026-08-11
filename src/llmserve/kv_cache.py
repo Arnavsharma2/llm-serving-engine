@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import time
 from collections import deque
 from dataclasses import dataclass, field
 
@@ -110,6 +111,7 @@ class PagedKVCache:
         )
         self._free_metadata_rows = deque(range(cache.num_blocks))
         self._tick = 0
+        self.metadata_rebuild_ms = 0.0
         self._high_water = {"blocks": 0, "used_tokens": 0, "sequences": 0}
         shape = (
             model.num_layers,
@@ -318,17 +320,25 @@ class PagedKVCache:
     def block_table_tensors(self, sequence_ids: list[str]) -> tuple[torch.Tensor, torch.Tensor]:
         """Materialize only block-table metadata for a fused paged-attention kernel."""
 
+        started = time.perf_counter()
         if not sequence_ids:
             raise ValueError("sequence_ids cannot be empty")
         sequences = [self.sequences[sequence_id] for sequence_id in sequence_ids]
         max_blocks = max(len(sequence.block_table) for sequence in sequences)
-        rows = torch.tensor(
-            [sequence.metadata_row for sequence in sequences],
+        block_tables = torch.full(
+            (len(sequences), max_blocks),
+            -1,
             device=self.device,
-            dtype=torch.long,
+            dtype=torch.int32,
         )
-        block_tables = self.device_block_tables.index_select(0, rows)[:, :max_blocks]
-        lengths = self.device_context_lengths.index_select(0, rows)
+        for row, sequence in enumerate(sequences):
+            block_tables[row, : len(sequence.block_table)] = torch.tensor(
+                sequence.block_table, device=self.device, dtype=torch.int32
+            )
+        lengths = torch.tensor(
+            [sequence.length for sequence in sequences], device=self.device, dtype=torch.int32
+        )
+        self.metadata_rebuild_ms += (time.perf_counter() - started) * 1000
         return block_tables, lengths
 
     def free(self, sequence_id: str) -> None:

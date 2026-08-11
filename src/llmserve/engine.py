@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import time
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -117,6 +118,8 @@ class LLMEngine:
         scheduler_mode: str = "continuous",
         paged_attention_backend: str = "pytorch",
         prefill_chunk_size: int = 16,
+        cache_device_metadata: bool = True,
+        collect_iteration_metrics: bool = False,
         device: torch.device | str = "cpu",
         dtype: torch.dtype = torch.float32,
     ) -> None:
@@ -134,7 +137,11 @@ class LLMEngine:
             raise ValueError("prefill_chunk_size must be positive")
         if scheduler_config.max_tokens_per_step < scheduler_config.max_batch_size:
             raise ValueError("max_tokens_per_step must allow one token per active request")
+        if not cache_device_metadata and prefill_chunk_size != 1:
+            raise ValueError("rebuilt device metadata is only supported for token-at-a-time runs")
         self.prefill_chunk_size = prefill_chunk_size
+        self.cache_device_metadata = cache_device_metadata
+        self.collect_iteration_metrics = collect_iteration_metrics
         if paged_attention_backend not in {"pytorch", "triton"}:
             raise ValueError("paged_attention_backend must be pytorch or triton")
         if paged_attention_backend == "triton":
@@ -162,7 +169,21 @@ class LLMEngine:
         )
         self._token_ids = torch.empty(iteration_capacity, device=self.device, dtype=torch.long)
         self._positions = torch.empty(iteration_capacity, device=self.device, dtype=torch.long)
-        self._iteration_metadata = self.cache.allocate_iteration_metadata(iteration_capacity)
+        self._iteration_metadata = (
+            self.cache.allocate_iteration_metadata(iteration_capacity)
+            if cache_device_metadata
+            else None
+        )
+        self._iteration_cpu_ms = {"prefill": 0.0, "decode": 0.0, "mixed": 0.0}
+        self._iteration_counts = {"prefill": 0, "decode": 0, "mixed": 0}
+        self._iteration_cuda_events: dict[str, list[tuple[torch.cuda.Event, torch.cuda.Event]]] = {
+            "prefill": [],
+            "decode": [],
+            "mixed": [],
+        }
+        self._metadata_construction_ms = 0.0
+        self._completed_preemptions = 0
+        self._completed_recomputed_tokens = 0
 
     async def generate(
         self,
@@ -222,6 +243,15 @@ class LLMEngine:
 
     @torch.inference_mode()
     async def _step(self) -> None:
+        phase = self._iteration_phase(list(self.scheduler.active))
+        step_started = time.perf_counter()
+        cuda_events = None
+        if self.collect_iteration_metrics and self.device.type == "cuda":
+            cuda_events = (
+                torch.cuda.Event(enable_timing=True),
+                torch.cuda.Event(enable_timing=True),
+            )
+            cuda_events[0].record()
         planned = self._plan_iteration(list(self.scheduler.active))
         required_blocks = self._required_blocks(planned)
         while required_blocks > self.cache.allocator.free_blocks and len(planned) > 1:
@@ -233,6 +263,7 @@ class LLMEngine:
         if required_blocks > self.cache.allocator.free_blocks:
             error = CacheFullError("one sequence exceeds total KV cache capacity")
             self._finish(planned[0][0], error=error)
+            self._record_iteration(phase, step_started, cuda_events)
             return
 
         sequence_ids: list[str] = []
@@ -260,11 +291,15 @@ class LLMEngine:
         self._positions[:cursor].copy_(
             self._host_positions[:cursor], non_blocking=self.device.type == "cuda"
         )
-        block_table_rows, sequence_lengths, block_ids, offsets = (
-            self.cache.prepare_iteration_metadata(
-                self._iteration_metadata, sequence_ids, slots, context_lengths
+        block_table_rows = sequence_lengths = block_ids = offsets = None
+        if self._iteration_metadata is not None:
+            metadata_started = time.perf_counter()
+            block_table_rows, sequence_lengths, block_ids, offsets = (
+                self.cache.prepare_iteration_metadata(
+                    self._iteration_metadata, sequence_ids, slots, context_lengths
+                )
             )
-        )
+            self._metadata_construction_ms += (time.perf_counter() - metadata_started) * 1000
         logits = self.model.forward_paged(
             self._token_ids[:cursor],
             self._positions[:cursor],
@@ -288,6 +323,7 @@ class LLMEngine:
             sample_rows.append(row)
 
         if not sample_requests:
+            self._record_iteration(phase, step_started, cuda_events)
             return
         selected_logits = torch.stack([logits[row] for row in sample_rows])
         configs = [self._generation_configs[request.request_id] for request in sample_requests]
@@ -307,6 +343,31 @@ class LLMEngine:
                 completed.append(request)
         for request in completed:
             self._finish(request)
+        self._record_iteration(phase, step_started, cuda_events)
+
+    @staticmethod
+    def _iteration_phase(active: list[RequestState]) -> str:
+        has_prefill = any(
+            request.processed_tokens < len(request.prompt_token_ids) for request in active
+        )
+        has_decode = any(
+            request.processed_tokens >= len(request.prompt_token_ids) for request in active
+        )
+        return "mixed" if has_prefill and has_decode else "prefill" if has_prefill else "decode"
+
+    def _record_iteration(
+        self,
+        phase: str,
+        started: float,
+        cuda_events: tuple[torch.cuda.Event, torch.cuda.Event] | None,
+    ) -> None:
+        if not self.collect_iteration_metrics:
+            return
+        self._iteration_cpu_ms[phase] += (time.perf_counter() - started) * 1000
+        self._iteration_counts[phase] += 1
+        if cuda_events is not None:
+            cuda_events[1].record()
+            self._iteration_cuda_events[phase].append(cuda_events)
 
     def _plan_iteration(self, active: list[RequestState]) -> list[tuple[RequestState, int]]:
         """Give every active request progress, then spend remaining budget on prefill chunks."""
@@ -345,6 +406,8 @@ class LLMEngine:
             self.cache.free(request.request_id)
         self._generation_configs.pop(request.request_id, None)
         self._generators.pop(request.request_id, None)
+        self._completed_preemptions += request.preemptions
+        self._completed_recomputed_tokens += request.recomputed_tokens
         if request.future and not request.future.done():
             if error:
                 request.future.set_exception(error)
@@ -371,6 +434,28 @@ class LLMEngine:
     @property
     def cache_stats(self) -> dict[str, float]:
         return self.cache.stats(self.model.config.max_position_embeddings)
+
+    @property
+    def iteration_stats(self) -> dict[str, float | int]:
+        cuda_ms = {phase: 0.0 for phase in self._iteration_cuda_events}
+        if self.collect_iteration_metrics and self.device.type == "cuda":
+            torch.cuda.synchronize(self.device)
+            cuda_ms = {
+                phase: sum(start.elapsed_time(end) for start, end in events)
+                for phase, events in self._iteration_cuda_events.items()
+            }
+        result: dict[str, float | int] = {
+            "metadata_construction_ms": (
+                self._metadata_construction_ms + self.cache.metadata_rebuild_ms
+            ),
+            "preemptions": self._completed_preemptions,
+            "recomputed_tokens": self._completed_recomputed_tokens,
+        }
+        for phase in ("prefill", "decode", "mixed"):
+            result[f"{phase}_iterations"] = self._iteration_counts[phase]
+            result[f"{phase}_cpu_ms"] = self._iteration_cpu_ms[phase]
+            result[f"{phase}_cuda_ms"] = cuda_ms[phase]
+        return result
 
     async def __aenter__(self) -> LLMEngine:
         return self

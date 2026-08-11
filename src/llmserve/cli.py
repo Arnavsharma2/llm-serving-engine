@@ -93,6 +93,8 @@ async def _benchmark(args) -> None:
             scheduler_mode=mode,
             paged_attention_backend=args.paged_attention_backend,
             prefill_chunk_size=args.prefill_chunk_size,
+            cache_device_metadata=not args.rebuild_device_metadata,
+            collect_iteration_metrics=True,
             device=device,
             dtype=next(model.parameters()).dtype,
         )
@@ -108,6 +110,7 @@ async def _benchmark(args) -> None:
     report = await harness.run(f"{args.config}-{args.policy}", generate)
     if engine:
         report.cache = engine.cache_stats
+        report.metadata["engine"] = engine.iteration_stats
         await engine.close()
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -251,6 +254,7 @@ def build_parser() -> argparse.ArgumentParser:
     benchmark.add_argument("--num-blocks", type=int, default=1024)
     benchmark.add_argument("--prefill-chunk-size", type=int, default=16)
     benchmark.add_argument("--max-tokens-per-step", type=int, default=2048)
+    benchmark.add_argument("--rebuild-device-metadata", action="store_true")
     benchmark.add_argument(
         "--paged-attention-backend", choices=("pytorch", "triton"), default="pytorch"
     )

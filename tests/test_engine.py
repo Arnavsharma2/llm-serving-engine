@@ -191,11 +191,37 @@ async def test_chunked_prefill_matches_token_at_a_time_generation() -> None:
         scheduler_config=SchedulerConfig(max_batch_size=1),
         prefill_chunk_size=16,
     )
+    rebuild_engine = LLMEngine(
+        make_model(),
+        ByteTokenizer(),
+        cache_config=CacheConfig(2, 64),
+        scheduler_config=SchedulerConfig(max_batch_size=1),
+        prefill_chunk_size=1,
+        cache_device_metadata=False,
+        collect_iteration_metrics=True,
+    )
     token_output = await token_engine.generate(prompt, config, request_id="token")
     chunk_output = await chunk_engine.generate(prompt, config, request_id="chunk")
+    rebuild_output = await rebuild_engine.generate(prompt, config, request_id="rebuild")
+    rebuild_stats = rebuild_engine.iteration_stats
     await token_engine.close()
     await chunk_engine.close()
+    await rebuild_engine.close()
     assert chunk_output == token_output
+    assert rebuild_output == token_output
+    assert rebuild_stats["prefill_iterations"] == len(prompt)
+    assert rebuild_stats["decode_iterations"] == config.max_new_tokens - 1
+
+
+def test_rebuilt_metadata_rejects_chunked_prefill() -> None:
+    with pytest.raises(ValueError, match="token-at-a-time"):
+        LLMEngine(
+            make_model(),
+            ByteTokenizer(),
+            cache_config=CacheConfig(2, 64),
+            prefill_chunk_size=16,
+            cache_device_metadata=False,
+        )
 
 
 @pytest.mark.asyncio
