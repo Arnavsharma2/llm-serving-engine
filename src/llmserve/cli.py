@@ -88,6 +88,7 @@ async def _benchmark(args) -> None:
             scheduler_config=SchedulerConfig(max_batch_size=batch_size, policy=args.policy),
             scheduler_mode=mode,
             device=device,
+            dtype=next(model.parameters()).dtype,
         )
 
         async def generate(spec, callback):
