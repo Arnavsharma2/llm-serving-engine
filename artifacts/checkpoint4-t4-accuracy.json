@@ -1,0 +1,52 @@
+{
+  "environment": {
+    "gpu": "Tesla T4",
+    "compute_capability": [
+      7,
+      5
+    ],
+    "torch": "2.11.0+cu128",
+    "cuda": "12.8",
+    "source_revision": "e34a84ee32cce3d0cb1b7b2b5bf933817c285412"
+  },
+  "corpus": {
+    "dataset": "Salesforce/wikitext/wikitext-2-raw-v1",
+    "split": "validation",
+    "model": "Qwen/Qwen2.5-1.5B",
+    "model_revision": "main",
+    "tokenizer": "Qwen/Qwen2.5-1.5B",
+    "tokenizer_revision": "main",
+    "tokens": 2048,
+    "sequence_length": 256,
+    "stride": 256,
+    "seed": 7,
+    "token_ids_sha256": "204e8885b4e1a038a4fcbc7e7643f39ef1c5790df795a1c7aa75ef3c85c37370"
+  },
+  "command": "/usr/bin/python3 scripts/evaluate_checkpoint4.py --tokens 2048 --sequence-length 256 --stride 256 --source-revision e34a84ee32cce3d0cb1b7b2b5bf933817c285412",
+  "results": [
+    {
+      "backend": "fp16",
+      "perplexity": 145.73906329420495,
+      "model_storage_bytes": 4026952704,
+      "load_and_quantization_s": 25.598013150000043,
+      "absolute_delta": 0.0,
+      "percentage_delta": 0.0
+    },
+    {
+      "backend": "reference-int8",
+      "perplexity": 146.73281536571494,
+      "model_storage_bytes": 2719337472,
+      "load_and_quantization_s": 27.474611423998795,
+      "absolute_delta": 0.9937520715099879,
+      "percentage_delta": 0.6818707689261627
+    },
+    {
+      "backend": "triton-int8",
+      "perplexity": 146.7033650476774,
+      "model_storage_bytes": 2719337472,
+      "load_and_quantization_s": 27.78739070499978,
+      "absolute_delta": 0.964301753472455,
+      "percentage_delta": 0.6616632024907476
+    }
+  ]
+}
