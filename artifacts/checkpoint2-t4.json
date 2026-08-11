@@ -1,0 +1,1020 @@
+{
+  "environment": {
+    "gpu": "Tesla T4",
+    "torch": "2.11.0+cu128",
+    "cuda": "12.8",
+    "model": "Qwen/Qwen2.5-1.5B"
+  },
+  "config": {
+    "model": "Qwen/Qwen2.5-1.5B",
+    "batch_sizes": [
+      1,
+      2,
+      4,
+      8
+    ],
+    "repeats": 5,
+    "micro_iterations": 20,
+    "micro_sequence_length": 128,
+    "prompt_tokens": 16,
+    "output_tokens": 8,
+    "seed": 7,
+    "output": "artifacts/checkpoint2-t4.json"
+  },
+  "summaries": [
+    {
+      "kind": "micro",
+      "backend": "pytorch",
+      "batch_size": 1,
+      "metric": "attention_ms",
+      "median": 3.780718231201172,
+      "min": 3.756123352050781,
+      "max": 4.0294944763183596,
+      "p95": 3.981549835205078,
+      "stdev": 0.11439612072132177,
+      "gpu_utilization_median_pct": 31.0
+    },
+    {
+      "kind": "micro",
+      "backend": "triton",
+      "batch_size": 1,
+      "metric": "attention_ms",
+      "median": 0.8028847694396972,
+      "min": 0.7994847774505616,
+      "max": 0.823366355895996,
+      "p95": 0.8202662086486816,
+      "stdev": 0.009967182534725904,
+      "gpu_utilization_median_pct": 0.0
+    },
+    {
+      "kind": "micro",
+      "backend": "pytorch",
+      "batch_size": 2,
+      "metric": "attention_ms",
+      "median": 7.30834732055664,
+      "min": 7.056171417236328,
+      "max": 7.344478607177734,
+      "p95": 7.337387390136718,
+      "stdev": 0.14435436472243465,
+      "gpu_utilization_median_pct": 21.692307692307693
+    },
+    {
+      "kind": "micro",
+      "backend": "triton",
+      "batch_size": 2,
+      "metric": "attention_ms",
+      "median": 0.8215871810913086,
+      "min": 0.8114815711975097,
+      "max": 1.2417072296142577,
+      "p95": 1.161630744934082,
+      "stdev": 0.18726048154748534,
+      "gpu_utilization_median_pct": 34.0
+    },
+    {
+      "kind": "micro",
+      "backend": "pytorch",
+      "batch_size": 4,
+      "metric": "attention_ms",
+      "median": 13.945710754394531,
+      "min": 13.022254943847656,
+      "max": 14.060989379882812,
+      "p95": 14.048760681152343,
+      "stdev": 0.5222911920279767,
+      "gpu_utilization_median_pct": 20.04
+    },
+    {
+      "kind": "micro",
+      "backend": "triton",
+      "batch_size": 4,
+      "metric": "attention_ms",
+      "median": 0.8725680351257324,
+      "min": 0.8236224174499511,
+      "max": 0.8962736129760742,
+      "p95": 0.8956374549865722,
+      "stdev": 0.030635585203413664,
+      "gpu_utilization_median_pct": 0.0
+    },
+    {
+      "kind": "micro",
+      "backend": "pytorch",
+      "batch_size": 8,
+      "metric": "attention_ms",
+      "median": 27.084808349609375,
+      "min": 25.251982116699217,
+      "max": 28.235232543945312,
+      "p95": 28.087871704101563,
+      "stdev": 1.1330383257167569,
+      "gpu_utilization_median_pct": 23.106382978723403
+    },
+    {
+      "kind": "micro",
+      "backend": "triton",
+      "batch_size": 8,
+      "metric": "attention_ms",
+      "median": 0.8879232406616211,
+      "min": 0.8582127571105957,
+      "max": 0.8942144393920899,
+      "p95": 0.8934457969665528,
+      "stdev": 0.016465209219000992,
+      "gpu_utilization_median_pct": 0.0
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "pytorch",
+      "batch_size": 1,
+      "metric": "tokens_per_second",
+      "median": 4.773322016852715,
+      "min": 4.134902092514164,
+      "max": 5.091984449050258,
+      "p95": 5.074646745553768,
+      "stdev": 0.3806013317751187,
+      "gpu_utilization_median_pct": 35.71232876712329
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "triton",
+      "batch_size": 1,
+      "metric": "tokens_per_second",
+      "median": 7.0646269646262825,
+      "min": 6.156141130111421,
+      "max": 7.29300788120208,
+      "p95": 7.286605961993194,
+      "stdev": 0.4892561955206088,
+      "gpu_utilization_median_pct": 36.41509433962264
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "pytorch",
+      "batch_size": 2,
+      "metric": "tokens_per_second",
+      "median": 7.353988136320572,
+      "min": 6.952216965680321,
+      "max": 7.441934746008723,
+      "p95": 7.435135789374925,
+      "stdev": 0.19725816264104074,
+      "gpu_utilization_median_pct": 33.1
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "triton",
+      "batch_size": 2,
+      "metric": "tokens_per_second",
+      "median": 14.374682597462751,
+      "min": 12.533949642050978,
+      "max": 14.482435530662578,
+      "p95": 14.467338425507524,
+      "stdev": 0.838967770539803,
+      "gpu_utilization_median_pct": 36.96153846153846
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "pytorch",
+      "batch_size": 4,
+      "metric": "tokens_per_second",
+      "median": 9.151636066779261,
+      "min": 8.486883679738776,
+      "max": 9.693427345568296,
+      "p95": 9.691003110633927,
+      "stdev": 0.5319227401473828,
+      "gpu_utilization_median_pct": 27.625806451612902
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "triton",
+      "batch_size": 4,
+      "metric": "tokens_per_second",
+      "median": 27.6719311757588,
+      "min": 27.382145868655176,
+      "max": 28.564672516290806,
+      "p95": 28.516082306208837,
+      "stdev": 0.5178619512910689,
+      "gpu_utilization_median_pct": 37.611111111111114
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "pytorch",
+      "batch_size": 8,
+      "metric": "tokens_per_second",
+      "median": 11.237250930591483,
+      "min": 10.779606995039725,
+      "max": 11.75182779308373,
+      "p95": 11.66434383631028,
+      "stdev": 0.35466877529631585,
+      "gpu_utilization_median_pct": 24.836575875486382
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "triton",
+      "batch_size": 8,
+      "metric": "tokens_per_second",
+      "median": 54.72453887323049,
+      "min": 53.110570075949724,
+      "max": 55.839938327724845,
+      "p95": 55.70924964472172,
+      "stdev": 1.0607028663847504,
+      "gpu_utilization_median_pct": 37.407407407407405
+    }
+  ],
+  "rows": [
+    {
+      "kind": "micro",
+      "backend": "pytorch",
+      "batch_size": 1,
+      "repeat": 0,
+      "sequence_length": 128,
+      "attention_ms": 3.756123352050781,
+      "gpu_utilization_pct": 8.0
+    },
+    {
+      "kind": "micro",
+      "backend": "pytorch",
+      "batch_size": 1,
+      "repeat": 1,
+      "sequence_length": 128,
+      "attention_ms": 3.780718231201172,
+      "gpu_utilization_pct": 20.428571428571427
+    },
+    {
+      "kind": "micro",
+      "backend": "pytorch",
+      "batch_size": 1,
+      "repeat": 2,
+      "sequence_length": 128,
+      "attention_ms": 4.0294944763183596,
+      "gpu_utilization_pct": 37.0
+    },
+    {
+      "kind": "micro",
+      "backend": "pytorch",
+      "batch_size": 1,
+      "repeat": 3,
+      "sequence_length": 128,
+      "attention_ms": 3.7741329193115236,
+      "gpu_utilization_pct": 37.0
+    },
+    {
+      "kind": "micro",
+      "backend": "pytorch",
+      "batch_size": 1,
+      "repeat": 4,
+      "sequence_length": 128,
+      "attention_ms": 3.7897712707519533,
+      "gpu_utilization_pct": 31.0
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "pytorch",
+      "batch_size": 1,
+      "repeat": 0,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 1.9347495590000108,
+      "tokens_per_second": 4.134902092514164,
+      "gpu_utilization_pct": 34.609756097560975
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "pytorch",
+      "batch_size": 1,
+      "repeat": 1,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 1.6759816270000556,
+      "tokens_per_second": 4.773322016852715,
+      "gpu_utilization_pct": 35.82051282051282
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "pytorch",
+      "batch_size": 1,
+      "repeat": 2,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 1.5983070950001093,
+      "tokens_per_second": 5.005295931567803,
+      "gpu_utilization_pct": 36.25675675675676
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "pytorch",
+      "batch_size": 1,
+      "repeat": 3,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 1.571096707000379,
+      "tokens_per_second": 5.091984449050258,
+      "gpu_utilization_pct": 35.71232876712329
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "pytorch",
+      "batch_size": 1,
+      "repeat": 4,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 1.739265400000022,
+      "tokens_per_second": 4.599643044701458,
+      "gpu_utilization_pct": 35.638888888888886
+    },
+    {
+      "kind": "micro",
+      "backend": "triton",
+      "batch_size": 1,
+      "repeat": 0,
+      "sequence_length": 128,
+      "attention_ms": 0.8078656196594238,
+      "gpu_utilization_pct": 0.0
+    },
+    {
+      "kind": "micro",
+      "backend": "triton",
+      "batch_size": 1,
+      "repeat": 1,
+      "sequence_length": 128,
+      "attention_ms": 0.7994847774505616,
+      "gpu_utilization_pct": 0.0
+    },
+    {
+      "kind": "micro",
+      "backend": "triton",
+      "batch_size": 1,
+      "repeat": 2,
+      "sequence_length": 128,
+      "attention_ms": 0.7995120048522949,
+      "gpu_utilization_pct": 0.0
+    },
+    {
+      "kind": "micro",
+      "backend": "triton",
+      "batch_size": 1,
+      "repeat": 3,
+      "sequence_length": 128,
+      "attention_ms": 0.823366355895996,
+      "gpu_utilization_pct": 0.0
+    },
+    {
+      "kind": "micro",
+      "backend": "triton",
+      "batch_size": 1,
+      "repeat": 4,
+      "sequence_length": 128,
+      "attention_ms": 0.8028847694396972,
+      "gpu_utilization_pct": 0.0
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "triton",
+      "batch_size": 1,
+      "repeat": 0,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 1.2995153669999127,
+      "tokens_per_second": 6.156141130111421,
+      "gpu_utilization_pct": 30.85
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "triton",
+      "batch_size": 1,
+      "repeat": 1,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 1.101776874999814,
+      "tokens_per_second": 7.260998285157647,
+      "gpu_utilization_pct": 38.411764705882355
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "triton",
+      "batch_size": 1,
+      "repeat": 2,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 1.0969410880002215,
+      "tokens_per_second": 7.29300788120208,
+      "gpu_utilization_pct": 37.411764705882355
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "triton",
+      "batch_size": 1,
+      "repeat": 3,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 1.13240232499993,
+      "tokens_per_second": 7.0646269646262825,
+      "gpu_utilization_pct": 36.41509433962264
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "triton",
+      "batch_size": 1,
+      "repeat": 4,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 1.213908669000375,
+      "tokens_per_second": 6.590281628508189,
+      "gpu_utilization_pct": 33.96491228070175
+    },
+    {
+      "kind": "micro",
+      "backend": "pytorch",
+      "batch_size": 2,
+      "repeat": 0,
+      "sequence_length": 128,
+      "attention_ms": 7.30834732055664,
+      "gpu_utilization_pct": 30.384615384615383
+    },
+    {
+      "kind": "micro",
+      "backend": "pytorch",
+      "batch_size": 2,
+      "repeat": 1,
+      "sequence_length": 128,
+      "attention_ms": 7.309022521972656,
+      "gpu_utilization_pct": 15.461538461538462
+    },
+    {
+      "kind": "micro",
+      "backend": "pytorch",
+      "batch_size": 2,
+      "repeat": 2,
+      "sequence_length": 128,
+      "attention_ms": 7.344478607177734,
+      "gpu_utilization_pct": 21.0
+    },
+    {
+      "kind": "micro",
+      "backend": "pytorch",
+      "batch_size": 2,
+      "repeat": 3,
+      "sequence_length": 128,
+      "attention_ms": 7.056171417236328,
+      "gpu_utilization_pct": 21.692307692307693
+    },
+    {
+      "kind": "micro",
+      "backend": "pytorch",
+      "batch_size": 2,
+      "repeat": 4,
+      "sequence_length": 128,
+      "attention_ms": 7.0606941223144535,
+      "gpu_utilization_pct": 22.615384615384617
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "pytorch",
+      "batch_size": 2,
+      "repeat": 0,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 2.187876196000161,
+      "tokens_per_second": 7.313028053987211,
+      "gpu_utilization_pct": 30.872549019607842
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "pytorch",
+      "batch_size": 2,
+      "repeat": 1,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 2.14997854000012,
+      "tokens_per_second": 7.441934746008723,
+      "gpu_utilization_pct": 33.1
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "pytorch",
+      "batch_size": 2,
+      "repeat": 2,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 2.3014241470000343,
+      "tokens_per_second": 6.952216965680321,
+      "gpu_utilization_pct": 31.848484848484848
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "pytorch",
+      "batch_size": 2,
+      "repeat": 3,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 2.175690210999619,
+      "tokens_per_second": 7.353988136320572,
+      "gpu_utilization_pct": 33.722772277227726
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "pytorch",
+      "batch_size": 2,
+      "repeat": 4,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 2.159844717999931,
+      "tokens_per_second": 7.407939962839731,
+      "gpu_utilization_pct": 33.97
+    },
+    {
+      "kind": "micro",
+      "backend": "triton",
+      "batch_size": 2,
+      "repeat": 0,
+      "sequence_length": 128,
+      "attention_ms": 1.2417072296142577,
+      "gpu_utilization_pct": 34.0
+    },
+    {
+      "kind": "micro",
+      "backend": "triton",
+      "batch_size": 2,
+      "repeat": 1,
+      "sequence_length": 128,
+      "attention_ms": 0.8215871810913086,
+      "gpu_utilization_pct": 34.0
+    },
+    {
+      "kind": "micro",
+      "backend": "triton",
+      "batch_size": 2,
+      "repeat": 2,
+      "sequence_length": 128,
+      "attention_ms": 0.8413248062133789,
+      "gpu_utilization_pct": 34.0
+    },
+    {
+      "kind": "micro",
+      "backend": "triton",
+      "batch_size": 2,
+      "repeat": 3,
+      "sequence_length": 128,
+      "attention_ms": 0.8203680038452148,
+      "gpu_utilization_pct": 22.5
+    },
+    {
+      "kind": "micro",
+      "backend": "triton",
+      "batch_size": 2,
+      "repeat": 4,
+      "sequence_length": 128,
+      "attention_ms": 0.8114815711975097,
+      "gpu_utilization_pct": 11.0
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "triton",
+      "batch_size": 2,
+      "repeat": 0,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 1.1130680549999852,
+      "tokens_per_second": 14.374682597462751,
+      "gpu_utilization_pct": 39.44230769230769
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "triton",
+      "batch_size": 2,
+      "repeat": 1,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 1.104786550999961,
+      "tokens_per_second": 14.482435530662578,
+      "gpu_utilization_pct": 38.57692307692308
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "triton",
+      "batch_size": 2,
+      "repeat": 2,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 1.2765329730000303,
+      "tokens_per_second": 12.533949642050978,
+      "gpu_utilization_pct": 32.09615384615385
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "triton",
+      "batch_size": 2,
+      "repeat": 3,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 1.1105751039999632,
+      "tokens_per_second": 14.406950004887316,
+      "gpu_utilization_pct": 36.96153846153846
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "triton",
+      "batch_size": 2,
+      "repeat": 4,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 1.113874976000261,
+      "tokens_per_second": 14.36426919065309,
+      "gpu_utilization_pct": 36.69230769230769
+    },
+    {
+      "kind": "micro",
+      "backend": "pytorch",
+      "batch_size": 4,
+      "repeat": 0,
+      "sequence_length": 128,
+      "attention_ms": 13.082379150390626,
+      "gpu_utilization_pct": 21.0
+    },
+    {
+      "kind": "micro",
+      "backend": "pytorch",
+      "batch_size": 4,
+      "repeat": 1,
+      "sequence_length": 128,
+      "attention_ms": 13.945710754394531,
+      "gpu_utilization_pct": 18.32
+    },
+    {
+      "kind": "micro",
+      "backend": "pytorch",
+      "batch_size": 4,
+      "repeat": 2,
+      "sequence_length": 128,
+      "attention_ms": 14.060989379882812,
+      "gpu_utilization_pct": 18.96
+    },
+    {
+      "kind": "micro",
+      "backend": "pytorch",
+      "batch_size": 4,
+      "repeat": 3,
+      "sequence_length": 128,
+      "attention_ms": 13.999845886230469,
+      "gpu_utilization_pct": 20.04
+    },
+    {
+      "kind": "micro",
+      "backend": "pytorch",
+      "batch_size": 4,
+      "repeat": 4,
+      "sequence_length": 128,
+      "attention_ms": 13.022254943847656,
+      "gpu_utilization_pct": 21.52173913043478
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "pytorch",
+      "batch_size": 4,
+      "repeat": 0,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 3.770524165000097,
+      "tokens_per_second": 8.486883679738776,
+      "gpu_utilization_pct": 24.92485549132948
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "pytorch",
+      "batch_size": 4,
+      "repeat": 1,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 3.6321866570001475,
+      "tokens_per_second": 8.810119914494994,
+      "gpu_utilization_pct": 26.46583850931677
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "pytorch",
+      "batch_size": 4,
+      "repeat": 2,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 3.301205946999744,
+      "tokens_per_second": 9.693427345568296,
+      "gpu_utilization_pct": 29.071428571428573
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "pytorch",
+      "batch_size": 4,
+      "repeat": 3,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 3.30533911800012,
+      "tokens_per_second": 9.681306170896454,
+      "gpu_utilization_pct": 29.11038961038961
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "pytorch",
+      "batch_size": 4,
+      "repeat": 4,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 3.4966425419997904,
+      "tokens_per_second": 9.151636066779261,
+      "gpu_utilization_pct": 27.625806451612902
+    },
+    {
+      "kind": "micro",
+      "backend": "triton",
+      "batch_size": 4,
+      "repeat": 0,
+      "sequence_length": 128,
+      "attention_ms": 0.8495712280273438,
+      "gpu_utilization_pct": 0.0
+    },
+    {
+      "kind": "micro",
+      "backend": "triton",
+      "batch_size": 4,
+      "repeat": 1,
+      "sequence_length": 128,
+      "attention_ms": 0.8236224174499511,
+      "gpu_utilization_pct": 0.0
+    },
+    {
+      "kind": "micro",
+      "backend": "triton",
+      "batch_size": 4,
+      "repeat": 2,
+      "sequence_length": 128,
+      "attention_ms": 0.8725680351257324,
+      "gpu_utilization_pct": 0.0
+    },
+    {
+      "kind": "micro",
+      "backend": "triton",
+      "batch_size": 4,
+      "repeat": 3,
+      "sequence_length": 128,
+      "attention_ms": 0.8930928230285644,
+      "gpu_utilization_pct": 0.0
+    },
+    {
+      "kind": "micro",
+      "backend": "triton",
+      "batch_size": 4,
+      "repeat": 4,
+      "sequence_length": 128,
+      "attention_ms": 0.8962736129760742,
+      "gpu_utilization_pct": 0.0
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "triton",
+      "batch_size": 4,
+      "repeat": 0,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 1.1621450900001946,
+      "tokens_per_second": 27.53528821430949,
+      "gpu_utilization_pct": 39.148148148148145
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "triton",
+      "batch_size": 4,
+      "repeat": 1,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 1.1686447130000488,
+      "tokens_per_second": 27.382145868655176,
+      "gpu_utilization_pct": 37.611111111111114
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "triton",
+      "batch_size": 4,
+      "repeat": 2,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 1.129874822000147,
+      "tokens_per_second": 28.321721465880966,
+      "gpu_utilization_pct": 37.64150943396226
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "triton",
+      "batch_size": 4,
+      "repeat": 3,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 1.1564064610001878,
+      "tokens_per_second": 27.6719311757588,
+      "gpu_utilization_pct": 36.425925925925924
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "triton",
+      "batch_size": 4,
+      "repeat": 4,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 1.1202649000001657,
+      "tokens_per_second": 28.564672516290806,
+      "gpu_utilization_pct": 37.0
+    },
+    {
+      "kind": "micro",
+      "backend": "pytorch",
+      "batch_size": 8,
+      "repeat": 0,
+      "sequence_length": 128,
+      "attention_ms": 28.235232543945312,
+      "gpu_utilization_pct": 18.82
+    },
+    {
+      "kind": "micro",
+      "backend": "pytorch",
+      "batch_size": 8,
+      "repeat": 1,
+      "sequence_length": 128,
+      "attention_ms": 27.498428344726562,
+      "gpu_utilization_pct": 19.346938775510203
+    },
+    {
+      "kind": "micro",
+      "backend": "pytorch",
+      "batch_size": 8,
+      "repeat": 2,
+      "sequence_length": 128,
+      "attention_ms": 26.405899047851562,
+      "gpu_utilization_pct": 23.106382978723403
+    },
+    {
+      "kind": "micro",
+      "backend": "pytorch",
+      "batch_size": 8,
+      "repeat": 3,
+      "sequence_length": 128,
+      "attention_ms": 27.084808349609375,
+      "gpu_utilization_pct": 23.791666666666668
+    },
+    {
+      "kind": "micro",
+      "backend": "pytorch",
+      "batch_size": 8,
+      "repeat": 4,
+      "sequence_length": 128,
+      "attention_ms": 25.251982116699217,
+      "gpu_utilization_pct": 27.0
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "pytorch",
+      "batch_size": 8,
+      "repeat": 0,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 5.937136672000179,
+      "tokens_per_second": 10.779606995039725,
+      "gpu_utilization_pct": 24.824626865671643
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "pytorch",
+      "batch_size": 8,
+      "repeat": 1,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 5.773330772999998,
+      "tokens_per_second": 11.085455262550921,
+      "gpu_utilization_pct": 24.776061776061777
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "pytorch",
+      "batch_size": 8,
+      "repeat": 2,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 5.4459613540002465,
+      "tokens_per_second": 11.75182779308373,
+      "gpu_utilization_pct": 26.023715415019762
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "pytorch",
+      "batch_size": 8,
+      "repeat": 3,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 5.69534313999975,
+      "tokens_per_second": 11.237250930591483,
+      "gpu_utilization_pct": 24.836575875486382
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "pytorch",
+      "batch_size": 8,
+      "repeat": 4,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 5.656504516000041,
+      "tokens_per_second": 11.314408009216471,
+      "gpu_utilization_pct": 25.118110236220474
+    },
+    {
+      "kind": "micro",
+      "backend": "triton",
+      "batch_size": 8,
+      "repeat": 0,
+      "sequence_length": 128,
+      "attention_ms": 0.8879232406616211,
+      "gpu_utilization_pct": 0.0
+    },
+    {
+      "kind": "micro",
+      "backend": "triton",
+      "batch_size": 8,
+      "repeat": 1,
+      "sequence_length": 128,
+      "attention_ms": 0.8942144393920899,
+      "gpu_utilization_pct": 0.0
+    },
+    {
+      "kind": "micro",
+      "backend": "triton",
+      "batch_size": 8,
+      "repeat": 2,
+      "sequence_length": 128,
+      "attention_ms": 0.8903712272644043,
+      "gpu_utilization_pct": 0.0
+    },
+    {
+      "kind": "micro",
+      "backend": "triton",
+      "batch_size": 8,
+      "repeat": 3,
+      "sequence_length": 128,
+      "attention_ms": 0.8644432067871094,
+      "gpu_utilization_pct": 0.0
+    },
+    {
+      "kind": "micro",
+      "backend": "triton",
+      "batch_size": 8,
+      "repeat": 4,
+      "sequence_length": 128,
+      "attention_ms": 0.8582127571105957,
+      "gpu_utilization_pct": 0.0
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "triton",
+      "batch_size": 8,
+      "repeat": 0,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 1.1857294289998208,
+      "tokens_per_second": 53.97521427294327,
+      "gpu_utilization_pct": 39.56363636363636
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "triton",
+      "batch_size": 8,
+      "repeat": 1,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 1.1597040200003903,
+      "tokens_per_second": 55.18649491270924,
+      "gpu_utilization_pct": 38.68518518518518
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "triton",
+      "batch_size": 8,
+      "repeat": 2,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 1.2050331959999312,
+      "tokens_per_second": 53.110570075949724,
+      "gpu_utilization_pct": 35.73684210526316
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "triton",
+      "batch_size": 8,
+      "repeat": 3,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 1.1694936369999596,
+      "tokens_per_second": 54.72453887323049,
+      "gpu_utilization_pct": 36.836363636363636
+    },
+    {
+      "kind": "end_to_end",
+      "backend": "triton",
+      "batch_size": 8,
+      "repeat": 4,
+      "prompt_tokens": 16,
+      "output_tokens_per_request": 8,
+      "duration_s": 1.1461330709998947,
+      "tokens_per_second": 55.839938327724845,
+      "gpu_utilization_pct": 37.407407407407405
+    }
+  ]
+}
