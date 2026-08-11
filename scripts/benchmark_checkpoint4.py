@@ -447,7 +447,7 @@ async def main() -> None:
     parser.add_argument("--micro-iterations", type=int, default=10)
     parser.add_argument("--micro-rows", type=int, nargs="+", default=[1, 8, 32, 128])
     parser.add_argument("--seed", type=int, default=7)
-    parser.add_argument("--num-blocks", type=int, default=512)
+    parser.add_argument("--num-blocks", type=int, default=256)
     parser.add_argument("--output", default="artifacts/checkpoint4-t4.json")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--source-revision")
