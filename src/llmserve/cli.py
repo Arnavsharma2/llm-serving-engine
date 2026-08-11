@@ -85,9 +85,14 @@ async def _benchmark(args) -> None:
             model,
             tokenizer,
             cache_config=CacheConfig(block_size=args.block_size, num_blocks=args.num_blocks),
-            scheduler_config=SchedulerConfig(max_batch_size=batch_size, policy=args.policy),
+            scheduler_config=SchedulerConfig(
+                max_batch_size=batch_size,
+                max_tokens_per_step=args.max_tokens_per_step,
+                policy=args.policy,
+            ),
             scheduler_mode=mode,
             paged_attention_backend=args.paged_attention_backend,
+            prefill_chunk_size=args.prefill_chunk_size,
             device=device,
             dtype=next(model.parameters()).dtype,
         )
@@ -214,8 +219,13 @@ def _serve(args) -> None:
         model,
         tokenizer,
         cache_config=CacheConfig(block_size=args.block_size, num_blocks=args.num_blocks),
-        scheduler_config=SchedulerConfig(max_batch_size=args.batch_size, policy=args.policy),
+        scheduler_config=SchedulerConfig(
+            max_batch_size=args.batch_size,
+            max_tokens_per_step=args.max_tokens_per_step,
+            policy=args.policy,
+        ),
         paged_attention_backend=args.paged_attention_backend,
+        prefill_chunk_size=args.prefill_chunk_size,
         device=device,
         dtype=dtype,
     )
@@ -239,6 +249,8 @@ def build_parser() -> argparse.ArgumentParser:
     benchmark.add_argument("--batch-size", type=int, default=16)
     benchmark.add_argument("--block-size", type=int, default=16)
     benchmark.add_argument("--num-blocks", type=int, default=1024)
+    benchmark.add_argument("--prefill-chunk-size", type=int, default=16)
+    benchmark.add_argument("--max-tokens-per-step", type=int, default=2048)
     benchmark.add_argument(
         "--paged-attention-backend", choices=("pytorch", "triton"), default="pytorch"
     )
@@ -273,6 +285,8 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--batch-size", type=int, default=16)
     serve.add_argument("--block-size", type=int, default=16)
     serve.add_argument("--num-blocks", type=int, default=1024)
+    serve.add_argument("--prefill-chunk-size", type=int, default=16)
+    serve.add_argument("--max-tokens-per-step", type=int, default=2048)
     serve.add_argument(
         "--paged-attention-backend", choices=("pytorch", "triton"), default="pytorch"
     )

@@ -40,6 +40,37 @@ def sample_token(logits: torch.Tensor, config: GenerationConfig, generator: torc
     return int(torch.multinomial(probabilities, 1, generator=generator).item())
 
 
+def sample_tokens(
+    logits: torch.Tensor,
+    configs: list[GenerationConfig],
+    generators: list[torch.Generator],
+) -> list[int]:
+    """Select a batch of tokens with one device-to-host synchronization."""
+
+    if logits.ndim != 2 or logits.shape[0] != len(configs) or len(configs) != len(generators):
+        raise ValueError("batched sampling inputs must have matching rows")
+    if all(config.temperature <= 0 for config in configs):
+        return logits.argmax(dim=-1).to(device="cpu").tolist()
+
+    selected: list[torch.Tensor] = []
+    for row, (config, generator) in enumerate(zip(configs, generators, strict=True)):
+        if config.temperature <= 0:
+            selected.append(logits[row].argmax())
+            continue
+        probabilities = torch.softmax(logits[row].float() / config.temperature, dim=-1)
+        if config.top_p < 1.0:
+            sorted_probabilities, indices = torch.sort(probabilities, descending=True)
+            cumulative = sorted_probabilities.cumsum(dim=-1)
+            remove = cumulative - sorted_probabilities >= config.top_p
+            sorted_probabilities[remove] = 0
+            sorted_probabilities /= sorted_probabilities.sum()
+            sampled = torch.multinomial(sorted_probabilities, 1, generator=generator)
+            selected.append(indices[sampled][0])
+        else:
+            selected.append(torch.multinomial(probabilities, 1, generator=generator)[0])
+    return torch.stack(selected).to(device="cpu").tolist()
+
+
 class NaiveDecoder:
     """Sequential reference implementation: recompute the full prefix for every token."""
 
@@ -85,6 +116,7 @@ class LLMEngine:
         scheduler_config: SchedulerConfig | None = None,
         scheduler_mode: str = "continuous",
         paged_attention_backend: str = "pytorch",
+        prefill_chunk_size: int = 16,
         device: torch.device | str = "cpu",
         dtype: torch.dtype = torch.float32,
     ) -> None:
@@ -98,6 +130,11 @@ class LLMEngine:
             scheduler_config.max_batch_size, scheduler_config.policy, scheduler_mode
         )
         self.scheduler_config = scheduler_config
+        if prefill_chunk_size <= 0:
+            raise ValueError("prefill_chunk_size must be positive")
+        if scheduler_config.max_tokens_per_step < scheduler_config.max_batch_size:
+            raise ValueError("max_tokens_per_step must allow one token per active request")
+        self.prefill_chunk_size = prefill_chunk_size
         if paged_attention_backend not in {"pytorch", "triton"}:
             raise ValueError("paged_attention_backend must be pytorch or triton")
         if paged_attention_backend == "triton":
@@ -115,6 +152,17 @@ class LLMEngine:
         self._closed = False
         self._generation_configs: dict[str, GenerationConfig] = {}
         self._generators: dict[str, torch.Generator] = {}
+        iteration_capacity = scheduler_config.max_tokens_per_step
+        pinned = self.device.type == "cuda"
+        self._host_token_ids = torch.empty(
+            iteration_capacity, device="cpu", dtype=torch.long, pin_memory=pinned
+        )
+        self._host_positions = torch.empty(
+            iteration_capacity, device="cpu", dtype=torch.long, pin_memory=pinned
+        )
+        self._token_ids = torch.empty(iteration_capacity, device=self.device, dtype=torch.long)
+        self._positions = torch.empty(iteration_capacity, device=self.device, dtype=torch.long)
+        self._iteration_metadata = self.cache.allocate_iteration_metadata(iteration_capacity)
 
     async def generate(
         self,
@@ -174,43 +222,79 @@ class LLMEngine:
 
     @torch.inference_mode()
     async def _step(self) -> None:
-        active = list(self.scheduler.active)
-        required_blocks = sum(
-            self.cache.sequences[item.request_id].length % self.cache.config.block_size == 0
-            for item in active
-        )
-        while required_blocks > self.cache.allocator.free_blocks and len(active) > 1:
-            victim = max(active, key=lambda item: item.processed_tokens)
+        planned = self._plan_iteration(list(self.scheduler.active))
+        required_blocks = self._required_blocks(planned)
+        while required_blocks > self.cache.allocator.free_blocks and len(planned) > 1:
+            victim, _ = max(planned, key=lambda item: item[0].processed_tokens)
             self.cache.free(victim.request_id)
             self.scheduler.preempt(victim)
-            active.remove(victim)
-            required_blocks = sum(
-                self.cache.sequences[item.request_id].length % self.cache.config.block_size == 0
-                for item in active
-            )
+            planned = [item for item in planned if item[0] is not victim]
+            required_blocks = self._required_blocks(planned)
         if required_blocks > self.cache.allocator.free_blocks:
             error = CacheFullError("one sequence exceeds total KV cache capacity")
-            self._finish(active[0], error=error)
+            self._finish(planned[0][0], error=error)
             return
 
-        slots = [self.cache.reserve_token(item.request_id) for item in active]
-        token_ids = torch.tensor([item.next_input_token for item in active], device=self.device)
-        positions = torch.tensor([item.processed_tokens for item in active], device=self.device)
+        sequence_ids: list[str] = []
+        context_lengths: list[int] = []
+        slots = []
+        final_rows: list[int] = []
+        cursor = 0
+        for request, count in planned:
+            request_tokens = request.all_tokens[
+                request.processed_tokens : request.processed_tokens + count
+            ]
+            request_slots = self.cache.reserve_tokens(request.request_id, count)
+            for token, slot in zip(request_tokens, request_slots, strict=True):
+                self._host_token_ids[cursor] = token
+                self._host_positions[cursor] = slot.position
+                sequence_ids.append(request.request_id)
+                context_lengths.append(slot.position + 1)
+                slots.append(slot)
+                cursor += 1
+            final_rows.append(cursor - 1)
+
+        self._token_ids[:cursor].copy_(
+            self._host_token_ids[:cursor], non_blocking=self.device.type == "cuda"
+        )
+        self._positions[:cursor].copy_(
+            self._host_positions[:cursor], non_blocking=self.device.type == "cuda"
+        )
+        block_table_rows, sequence_lengths, block_ids, offsets = (
+            self.cache.prepare_iteration_metadata(
+                self._iteration_metadata, sequence_ids, slots, context_lengths
+            )
+        )
         logits = self.model.forward_paged(
-            token_ids,
-            positions,
-            [item.request_id for item in active],
+            self._token_ids[:cursor],
+            self._positions[:cursor],
+            sequence_ids,
             slots,
             self.cache,
             backend=self.paged_attention_backend,
+            block_table_rows=block_table_rows,
+            sequence_lengths=sequence_lengths,
+            context_lengths=context_lengths,
+            block_ids=block_ids,
+            offsets=offsets,
         )
-        completed: list[RequestState] = []
-        for row, request in enumerate(active):
-            request.processed_tokens += 1
+        sample_requests: list[RequestState] = []
+        sample_rows: list[int] = []
+        for (request, count), row in zip(planned, final_rows, strict=True):
+            request.processed_tokens += count
             if request.processed_tokens < len(request.all_tokens):
                 continue  # Replaying after preemption.
-            config = self._generation_configs[request.request_id]
-            token = sample_token(logits[row], config, self._generators[request.request_id])
+            sample_requests.append(request)
+            sample_rows.append(row)
+
+        if not sample_requests:
+            return
+        selected_logits = torch.stack([logits[row] for row in sample_rows])
+        configs = [self._generation_configs[request.request_id] for request in sample_requests]
+        generators = [self._generators[request.request_id] for request in sample_requests]
+        tokens = sample_tokens(selected_logits, configs, generators)
+        completed: list[RequestState] = []
+        for request, config, token in zip(sample_requests, configs, tokens, strict=True):
             request.generated_token_ids.append(token)
             if request.callback:
                 result = request.callback(token)
@@ -223,6 +307,36 @@ class LLMEngine:
                 completed.append(request)
         for request in completed:
             self._finish(request)
+
+    def _plan_iteration(self, active: list[RequestState]) -> list[tuple[RequestState, int]]:
+        """Give every active request progress, then spend remaining budget on prefill chunks."""
+
+        budget = self.scheduler_config.max_tokens_per_step
+        planned: list[tuple[RequestState, int]] = []
+        for request in active:
+            remaining = len(request.all_tokens) - request.processed_tokens
+            if remaining <= 0:
+                raise RuntimeError("active request has no input token to process")
+            planned.append((request, 1))
+            budget -= 1
+        for index, (request, count) in enumerate(planned):
+            if budget <= 0:
+                break
+            remaining = len(request.all_tokens) - request.processed_tokens
+            desired = min(self.prefill_chunk_size, remaining)
+            extra = min(desired - count, budget)
+            planned[index] = (request, count + extra)
+            budget -= extra
+        return planned
+
+    def _required_blocks(self, planned: list[tuple[RequestState, int]]) -> int:
+        block_size = self.cache.config.block_size
+        required = 0
+        for request, count in planned:
+            length = self.cache.sequences[request.request_id].length
+            required += (length + count + block_size - 1) // block_size
+            required -= (length + block_size - 1) // block_size
+        return required
 
     def _finish(self, request: RequestState, error: Exception | None = None) -> None:
         if request in self.scheduler.active:
@@ -241,6 +355,12 @@ class LLMEngine:
         for request in self.scheduler.active + self.scheduler.waiting:
             if request.future and not request.future.done():
                 request.future.set_exception(error)
+        for sequence_id in list(self.cache.sequences):
+            self.cache.free(sequence_id)
+        self.scheduler.active.clear()
+        self.scheduler.waiting.clear()
+        self._generation_configs.clear()
+        self._generators.clear()
 
     async def close(self) -> None:
         self._closed = True
