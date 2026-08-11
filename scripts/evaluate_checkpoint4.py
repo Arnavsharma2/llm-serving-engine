@@ -53,6 +53,7 @@ def main() -> None:
     parser.add_argument("--stride", type=int, default=512)
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--output", default="artifacts/checkpoint4-t4-accuracy.json")
+    parser.add_argument("--source-revision")
     args = parser.parse_args()
     if not torch.cuda.is_available():
         raise RuntimeError("Checkpoint 4 accuracy evaluation requires CUDA")
@@ -102,9 +103,8 @@ def main() -> None:
             "compute_capability": list(torch.cuda.get_device_capability(0)),
             "torch": torch.__version__,
             "cuda": torch.version.cuda,
-            "source_revision": subprocess.check_output(
-                ["git", "rev-parse", "HEAD"], text=True
-            ).strip(),
+            "source_revision": args.source_revision
+            or subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
         },
         "corpus": {
             "dataset": "wikitext/wikitext-2-raw-v1",
