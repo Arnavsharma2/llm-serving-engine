@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections import deque
 from dataclasses import dataclass, field
 
@@ -15,6 +16,7 @@ class CacheFullError(RuntimeError):
 @dataclass
 class SequenceCache:
     sequence_id: str
+    metadata_row: int
     block_table: list[int] = field(default_factory=list)
     length: int = 0
     last_access_tick: int = 0
@@ -25,6 +27,31 @@ class CacheSlot:
     block_id: int
     offset: int
     position: int
+
+
+@dataclass
+class IterationMetadata:
+    """Reusable host/device buffers shared by every decoder layer in an iteration."""
+
+    capacity: int
+    host_block_table_rows: torch.Tensor
+    host_context_lengths: torch.Tensor
+    host_block_ids: torch.Tensor
+    host_offsets: torch.Tensor
+    block_table_rows: torch.Tensor
+    context_lengths: torch.Tensor
+    block_ids: torch.Tensor
+    offsets: torch.Tensor
+
+    def active(self, count: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        if count < 0 or count > self.capacity:
+            raise ValueError("active metadata count exceeds buffer capacity")
+        return (
+            self.block_table_rows[:count],
+            self.context_lengths[:count],
+            self.block_ids[:count],
+            self.offsets[:count],
+        )
 
 
 class BlockAllocator:
@@ -77,6 +104,11 @@ class PagedKVCache:
         self.dtype = dtype
         self.allocator = BlockAllocator(cache.num_blocks)
         self.sequences: dict[str, SequenceCache] = {}
+        self.max_blocks_per_sequence = min(
+            cache.num_blocks,
+            math.ceil(model.max_position_embeddings / cache.block_size),
+        )
+        self._free_metadata_rows = deque(range(cache.num_blocks))
         self._tick = 0
         self._high_water = {"blocks": 0, "used_tokens": 0, "sequences": 0}
         shape = (
@@ -88,18 +120,43 @@ class PagedKVCache:
             model.head_dim,
         )
         self.storage = torch.empty(shape, device=self.device, dtype=dtype)
+        self.device_block_tables = torch.full(
+            (cache.num_blocks, self.max_blocks_per_sequence),
+            -1,
+            device=self.device,
+            dtype=torch.int32,
+        )
+        self.device_context_lengths = torch.zeros(
+            cache.num_blocks, device=self.device, dtype=torch.int32
+        )
 
     def create(self, sequence_id: str) -> None:
         if sequence_id in self.sequences:
             raise ValueError(f"sequence {sequence_id!r} already exists")
-        self.sequences[sequence_id] = SequenceCache(sequence_id)
+        if not self._free_metadata_rows:
+            raise CacheFullError("paged KV cache has no free metadata rows")
+        metadata_row = self._free_metadata_rows.popleft()
+        self.device_block_tables[metadata_row].fill_(-1)
+        self.device_context_lengths[metadata_row] = 0
+        self.sequences[sequence_id] = SequenceCache(sequence_id, metadata_row)
 
     def reserve_token(self, sequence_id: str) -> CacheSlot:
+        slot = self._reserve_token(sequence_id)
+        sequence = self.sequences[sequence_id]
+        self.device_context_lengths[sequence.metadata_row] = sequence.length
+        return slot
+
+    def _reserve_token(self, sequence_id: str) -> CacheSlot:
         sequence = self.sequences[sequence_id]
         position = sequence.length
         offset = position % self.config.block_size
         if offset == 0:
-            sequence.block_table.append(self.allocator.allocate(sequence_id))
+            logical_block = len(sequence.block_table)
+            if logical_block >= self.max_blocks_per_sequence:
+                raise CacheFullError("sequence exceeds paged KV metadata capacity")
+            physical_block = self.allocator.allocate(sequence_id)
+            sequence.block_table.append(physical_block)
+            self.device_block_tables[sequence.metadata_row, logical_block] = physical_block
         slot = CacheSlot(sequence.block_table[position // self.config.block_size], offset, position)
         sequence.length += 1
         self._touch(sequence)
@@ -111,17 +168,98 @@ class PagedKVCache:
             }
         return slot
 
+    def reserve_tokens(self, sequence_id: str, count: int) -> list[CacheSlot]:
+        if count <= 0:
+            raise ValueError("count must be positive")
+        slots = [self._reserve_token(sequence_id) for _ in range(count)]
+        sequence = self.sequences[sequence_id]
+        self.device_context_lengths[sequence.metadata_row] = sequence.length
+        return slots
+
+    def allocate_iteration_metadata(self, capacity: int) -> IterationMetadata:
+        if capacity <= 0:
+            raise ValueError("iteration metadata capacity must be positive")
+
+        def host_buffer() -> torch.Tensor:
+            return torch.empty(
+                capacity,
+                device="cpu",
+                dtype=torch.int32,
+                pin_memory=self.device.type == "cuda",
+            )
+
+        def device_buffer() -> torch.Tensor:
+            return torch.empty(capacity, device=self.device, dtype=torch.int32)
+
+        return IterationMetadata(
+            capacity=capacity,
+            host_block_table_rows=host_buffer(),
+            host_context_lengths=host_buffer(),
+            host_block_ids=host_buffer(),
+            host_offsets=host_buffer(),
+            block_table_rows=device_buffer(),
+            context_lengths=device_buffer(),
+            block_ids=device_buffer(),
+            offsets=device_buffer(),
+        )
+
+    def prepare_iteration_metadata(
+        self,
+        metadata: IterationMetadata,
+        sequence_ids: list[str],
+        slots: list[CacheSlot],
+        context_lengths: list[int],
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        count = len(sequence_ids)
+        if count == 0:
+            raise ValueError("sequence_ids cannot be empty")
+        if len(slots) != count or len(context_lengths) != count:
+            raise ValueError("iteration metadata inputs must have matching lengths")
+        if count > metadata.capacity:
+            raise ValueError("iteration metadata exceeds reusable buffer capacity")
+        for index, (sequence_id, slot, context_length) in enumerate(
+            zip(sequence_ids, slots, context_lengths, strict=True)
+        ):
+            sequence = self.sequences[sequence_id]
+            if context_length <= 0 or context_length > sequence.length:
+                raise ValueError("context length must reference reserved sequence tokens")
+            metadata.host_block_table_rows[index] = sequence.metadata_row
+            metadata.host_context_lengths[index] = context_length
+            metadata.host_block_ids[index] = slot.block_id
+            metadata.host_offsets[index] = slot.offset
+
+        host_buffers = (
+            metadata.host_block_table_rows,
+            metadata.host_context_lengths,
+            metadata.host_block_ids,
+            metadata.host_offsets,
+        )
+        device_buffers = (
+            metadata.block_table_rows,
+            metadata.context_lengths,
+            metadata.block_ids,
+            metadata.offsets,
+        )
+        for host, device in zip(host_buffers, device_buffers, strict=True):
+            device[:count].copy_(host[:count], non_blocking=self.device.type == "cuda")
+        return metadata.active(count)
+
     def write(
         self,
         layer: int,
         slots: list[CacheSlot],
         keys: torch.Tensor,
         values: torch.Tensor,
+        *,
+        block_ids: torch.Tensor | None = None,
+        offsets: torch.Tensor | None = None,
     ) -> None:
         """Write one token per sequence; keys/values have shape [batch, kv_heads, head_dim]."""
 
-        block_ids = torch.tensor([slot.block_id for slot in slots], device=self.device)
-        offsets = torch.tensor([slot.offset for slot in slots], device=self.device)
+        if block_ids is None:
+            block_ids = torch.tensor([slot.block_id for slot in slots], device=self.device)
+        if offsets is None:
+            offsets = torch.tensor([slot.offset for slot in slots], device=self.device)
         self.storage[layer, 0, block_ids, offsets] = keys
         self.storage[layer, 1, block_ids, offsets] = values
 
@@ -162,11 +300,13 @@ class PagedKVCache:
             self._touch(sequence)
         return keys, values, lengths
 
-    def iter_kv_blocks(self, layer: int, sequence_id: str):
+    def iter_kv_blocks(self, layer: int, sequence_id: str, length: int | None = None):
         """Yield valid K/V views in logical order without making a contiguous cache copy."""
 
         sequence = self.sequences[sequence_id]
-        remaining = sequence.length
+        remaining = sequence.length if length is None else length
+        if remaining <= 0 or remaining > sequence.length:
+            raise ValueError("requested KV length is outside the cached sequence")
         for block in sequence.block_table:
             take = min(remaining, self.config.block_size)
             yield self.storage[layer, 0, block, :take], self.storage[layer, 1, block, :take]
@@ -175,34 +315,29 @@ class PagedKVCache:
                 break
         self._touch(sequence)
 
-    def block_table_tensors(
-        self, sequence_ids: list[str]
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    def block_table_tensors(self, sequence_ids: list[str]) -> tuple[torch.Tensor, torch.Tensor]:
         """Materialize only block-table metadata for a fused paged-attention kernel."""
 
         if not sequence_ids:
             raise ValueError("sequence_ids cannot be empty")
         sequences = [self.sequences[sequence_id] for sequence_id in sequence_ids]
         max_blocks = max(len(sequence.block_table) for sequence in sequences)
-        block_tables = torch.full(
-            (len(sequences), max_blocks),
-            -1,
+        rows = torch.tensor(
+            [sequence.metadata_row for sequence in sequences],
             device=self.device,
-            dtype=torch.int32,
+            dtype=torch.long,
         )
-        for row, sequence in enumerate(sequences):
-            block_tables[row, : len(sequence.block_table)] = torch.tensor(
-                sequence.block_table, device=self.device, dtype=torch.int32
-            )
-        lengths = torch.tensor(
-            [sequence.length for sequence in sequences], device=self.device, dtype=torch.int32
-        )
+        block_tables = self.device_block_tables.index_select(0, rows)[:, :max_blocks]
+        lengths = self.device_context_lengths.index_select(0, rows)
         return block_tables, lengths
 
     def free(self, sequence_id: str) -> None:
         sequence = self.sequences.pop(sequence_id)
         for block in sequence.block_table:
             self.allocator.free(block, sequence_id)
+        self.device_block_tables[sequence.metadata_row].fill_(-1)
+        self.device_context_lengths[sequence.metadata_row] = 0
+        self._free_metadata_rows.append(sequence.metadata_row)
 
     def evict(self, policy: str = "largest", exclude: set[str] | None = None) -> tuple[str, int]:
         candidates = [

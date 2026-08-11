@@ -104,10 +104,21 @@ class Attention(nn.Module):
         *,
         backend: str = "pytorch",
         block_tables: torch.Tensor | None = None,
+        block_table_rows: torch.Tensor | None = None,
         sequence_lengths: torch.Tensor | None = None,
+        context_lengths: list[int] | None = None,
+        block_ids: torch.Tensor | None = None,
+        offsets: torch.Tensor | None = None,
     ) -> torch.Tensor:
         queries, keys, values = self._project(inputs, positions[:, None])
-        cache.write(self.layer_index, slots, keys[:, 0], values[:, 0])
+        cache.write(
+            self.layer_index,
+            slots,
+            keys[:, 0],
+            values[:, 0],
+            block_ids=block_ids,
+            offsets=offsets,
+        )
 
         if backend == "triton":
             if block_tables is None or sequence_lengths is None:
@@ -120,6 +131,7 @@ class Attention(nn.Module):
                 sequence_lengths,
                 block_size=cache.config.block_size,
                 scale=1.0 / math.sqrt(self.config.head_dim),
+                block_table_rows=block_table_rows,
             )
             return self.o_proj(output.reshape(inputs.shape))
         if backend != "pytorch":
@@ -140,7 +152,14 @@ class Attention(nn.Module):
             )
             running_sum = torch.zeros_like(running_max)
             accumulator = torch.zeros_like(query)
-            for key_block, value_block in cache.iter_kv_blocks(self.layer_index, sequence_id):
+            context_length = (
+                cache.sequences[sequence_id].length
+                if context_lengths is None
+                else context_lengths[row]
+            )
+            for key_block, value_block in cache.iter_kv_blocks(
+                self.layer_index, sequence_id, context_length
+            ):
                 expanded_keys = self._expand_kv(key_block[None])[0].transpose(0, 1).float()
                 expanded_values = self._expand_kv(value_block[None])[0].transpose(0, 1).float()
                 scores = torch.einsum("hd,htd->ht", query, expanded_keys) * scale
@@ -191,7 +210,11 @@ class DecoderLayer(nn.Module):
         *,
         backend: str = "pytorch",
         block_tables: torch.Tensor | None = None,
+        block_table_rows: torch.Tensor | None = None,
         sequence_lengths: torch.Tensor | None = None,
+        context_lengths: list[int] | None = None,
+        block_ids: torch.Tensor | None = None,
+        offsets: torch.Tensor | None = None,
     ) -> torch.Tensor:
         attention = self.self_attn.forward_paged(
             self.input_layernorm(inputs),
@@ -201,7 +224,11 @@ class DecoderLayer(nn.Module):
             cache,
             backend=backend,
             block_tables=block_tables,
+            block_table_rows=block_table_rows,
             sequence_lengths=sequence_lengths,
+            context_lengths=context_lengths,
+            block_ids=block_ids,
+            offsets=offsets,
         )
         inputs = inputs + attention
         return inputs + self.mlp(self.post_attention_layernorm(inputs))
@@ -249,12 +276,20 @@ class Transformer(nn.Module):
         cache: PagedKVCache,
         *,
         backend: str = "pytorch",
+        block_table_rows: torch.Tensor | None = None,
+        sequence_lengths: torch.Tensor | None = None,
+        context_lengths: list[int] | None = None,
+        block_ids: torch.Tensor | None = None,
+        offsets: torch.Tensor | None = None,
     ) -> torch.Tensor:
         if token_ids.ndim != 1:
             raise ValueError("paged decode accepts exactly one token per active sequence")
-        block_tables = sequence_lengths = None
+        block_tables = None
         if backend == "triton":
-            block_tables, sequence_lengths = cache.block_table_tensors(sequence_ids)
+            if sequence_lengths is None:
+                block_tables, sequence_lengths = cache.block_table_tensors(sequence_ids)
+            else:
+                block_tables = cache.device_block_tables
         hidden = self.embed_tokens(token_ids)[:, None, :]
         for layer in self.layers:
             hidden = layer.forward_paged(
@@ -265,6 +300,10 @@ class Transformer(nn.Module):
                 cache,
                 backend=backend,
                 block_tables=block_tables,
+                block_table_rows=block_table_rows,
                 sequence_lengths=sequence_lengths,
+                context_lengths=context_lengths,
+                block_ids=block_ids,
+                offsets=offsets,
             )
         return self.lm_head(self.norm(hidden[:, 0]))

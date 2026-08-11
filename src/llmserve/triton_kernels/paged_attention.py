@@ -32,6 +32,7 @@ if triton is not None:
         keys,
         values,
         block_tables,
+        block_table_rows,
         sequence_lengths,
         output,
         stride_q_batch: tl.constexpr,
@@ -56,6 +57,7 @@ if triton is not None:
         BLOCK_SIZE: tl.constexpr,
         HEAD_DIM: tl.constexpr,
         PADDED_HEAD_DIM: tl.constexpr,
+        USE_ROW_INDIRECTION: tl.constexpr,
     ):
         sequence_index = tl.program_id(0)
         query_head = tl.program_id(1)
@@ -74,6 +76,9 @@ if triton is not None:
         ).to(tl.float32)
 
         sequence_length = tl.load(sequence_lengths + sequence_index)
+        metadata_row = sequence_index
+        if USE_ROW_INDIRECTION:
+            metadata_row = tl.load(block_table_rows + sequence_index)
         running_max = -float("inf")
         running_sum = 0.0
         accumulator = tl.zeros((PADDED_HEAD_DIM,), dtype=tl.float32)
@@ -82,7 +87,7 @@ if triton is not None:
         for logical_block in range(0, tl.cdiv(sequence_length, BLOCK_SIZE)):
             physical_block = tl.load(
                 block_tables
-                + sequence_index * stride_table_batch
+                + metadata_row * stride_table_batch
                 + logical_block * stride_table_block
             )
             positions = logical_block * BLOCK_SIZE + token_offsets
@@ -142,14 +147,16 @@ def paged_attention_decode(
     *,
     block_size: int,
     scale: float | None = None,
+    block_table_rows: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Run fused paged-attention decode without reconstructing contiguous KV tensors.
 
     Args:
         queries: ``[batch, query_heads, head_dim]`` FP16 decode queries.
         keys/values: ``[physical_blocks, block_size, kv_heads, head_dim]`` caches.
-        block_tables: ``[batch, logical_blocks]`` physical block ids.
+        block_tables: device-resident physical block ids. It may contain inactive rows.
         sequence_lengths: valid cached token count for each sequence.
+        block_table_rows: optional row indirection into ``block_tables`` for each query.
     """
 
     if not is_triton_paged_attention_available(queries.device):
@@ -172,12 +179,21 @@ def paged_attention_decode(
     num_kv_heads = keys.shape[2]
     if num_query_heads % num_kv_heads:
         raise ValueError("query heads must be divisible by KV heads for GQA")
-    if block_tables.shape[0] != batch or sequence_lengths.shape != (batch,):
-        raise ValueError("block tables and sequence lengths must match the query batch")
+    if sequence_lengths.shape != (batch,):
+        raise ValueError("sequence lengths must match the query batch")
+    if block_table_rows is None and block_tables.shape[0] != batch:
+        raise ValueError("block tables must match the query batch without row indirection")
+    if block_table_rows is not None and block_table_rows.shape != (batch,):
+        raise ValueError("block-table rows must match the query batch")
     if block_tables.device != queries.device or sequence_lengths.device != queries.device:
         raise ValueError("block tables and sequence lengths must be on the query device")
     if block_tables.dtype != torch.int32 or sequence_lengths.dtype != torch.int32:
         raise TypeError("block tables and sequence lengths must use torch.int32")
+    if block_table_rows is not None:
+        if block_table_rows.device != queries.device:
+            raise ValueError("block-table rows must be on the query device")
+        if block_table_rows.dtype != torch.int32:
+            raise TypeError("block-table rows must use torch.int32")
     if not queries.is_contiguous() or not keys.is_contiguous() or not values.is_contiguous():
         raise ValueError("queries and KV cache views must be contiguous")
 
@@ -191,6 +207,7 @@ def paged_attention_decode(
         keys,
         values,
         block_tables,
+        block_table_rows if block_table_rows is not None else sequence_lengths,
         sequence_lengths,
         output,
         queries.stride(0),
@@ -215,6 +232,7 @@ def paged_attention_decode(
         BLOCK_SIZE=block_size,
         HEAD_DIM=head_dim,
         PADDED_HEAD_DIM=padded_head_dim,
+        USE_ROW_INDIRECTION=block_table_rows is not None,
         num_warps=4,
         num_stages=2,
     )

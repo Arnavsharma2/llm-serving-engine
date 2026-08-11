@@ -72,3 +72,63 @@ def test_cache_materializes_only_block_table_metadata() -> None:
     assert lengths.dtype == torch.int32
     assert block_tables.tolist() == [[0, -1], [1, 2]]
     assert lengths.tolist() == [1, 3]
+
+
+def test_device_metadata_tracks_allocation_growth_and_completion() -> None:
+    cache = PagedKVCache(config(), CacheConfig(block_size=2, num_blocks=4))
+    cache.create("first")
+    sequence = cache.sequences["first"]
+    row = sequence.metadata_row
+    cache.reserve_tokens("first", 3)
+
+    assert cache.device_block_tables[row].tolist() == [0, 1, -1, -1]
+    assert int(cache.device_context_lengths[row]) == 3
+    assert cache.device_block_tables[row, :2].tolist() == sequence.block_table
+
+    cache.free("first")
+    assert cache.device_block_tables[row].tolist() == [-1, -1, -1, -1]
+    assert int(cache.device_context_lengths[row]) == 0
+
+    cache.create("replacement")
+    assert cache.sequences["replacement"].metadata_row != row
+    cache.reserve_token("replacement")
+    replacement_row = cache.sequences["replacement"].metadata_row
+    assert cache.device_block_tables[replacement_row, 1:].tolist() == [-1, -1, -1]
+
+
+def test_device_metadata_clears_evicted_rows_without_stale_blocks() -> None:
+    cache = PagedKVCache(config(), CacheConfig(block_size=2, num_blocks=4))
+    cache.create("short")
+    cache.reserve_token("short")
+    cache.create("long")
+    cache.reserve_tokens("long", 4)
+    long_row = cache.sequences["long"].metadata_row
+
+    victim, recompute = cache.evict("largest")
+
+    assert (victim, recompute) == ("long", 4)
+    assert cache.device_block_tables[long_row].tolist() == [-1, -1, -1, -1]
+    assert int(cache.device_context_lengths[long_row]) == 0
+
+
+def test_iteration_metadata_reuses_buffers_across_block_boundaries() -> None:
+    cache = PagedKVCache(config(), CacheConfig(block_size=2, num_blocks=8))
+    cache.create("a")
+    cache.create("b")
+    slots_a = cache.reserve_tokens("a", 3)
+    slots_b = cache.reserve_tokens("b", 2)
+    metadata = cache.allocate_iteration_metadata(5)
+    sequence_ids = ["a", "a", "a", "b", "b"]
+    slots = slots_a + slots_b
+    lengths = [1, 2, 3, 1, 2]
+
+    rows, device_lengths, block_ids, offsets = cache.prepare_iteration_metadata(
+        metadata, sequence_ids, slots, lengths
+    )
+
+    assert rows.tolist() == [0, 0, 0, 1, 1]
+    assert device_lengths.tolist() == lengths
+    assert block_ids.tolist() == [0, 0, 1, 2, 2]
+    assert offsets.tolist() == [0, 1, 0, 0, 1]
+    assert cache.device_block_tables[0, :2].tolist() == cache.sequences["a"].block_table
+    assert cache.device_block_tables[1, :1].tolist() == cache.sequences["b"].block_table

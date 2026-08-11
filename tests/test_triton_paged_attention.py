@@ -104,6 +104,32 @@ def test_triton_paged_attention_maps_twelve_query_heads_to_two_kv_heads() -> Non
     torch.testing.assert_close(actual, expected, atol=2e-2, rtol=2e-2)
 
 
+def test_triton_paged_attention_supports_cached_row_indirection_for_prefill() -> None:
+    queries, keys, values, compact_tables, _ = _make_paged_inputs([17, 17, 17])
+    full_tables = torch.full((8, compact_tables.shape[1]), -1, device="cuda", dtype=torch.int32)
+    full_tables[5] = compact_tables[0]
+    rows = torch.tensor([5, 5, 5], device="cuda", dtype=torch.int32)
+    lengths = torch.tensor([1, 16, 17], device="cuda", dtype=torch.int32)
+
+    actual = paged_attention_decode(
+        queries,
+        keys,
+        values,
+        full_tables,
+        lengths,
+        block_size=16,
+        block_table_rows=rows,
+    )
+    expected = _full_attention_reference(
+        queries,
+        keys,
+        values,
+        full_tables.index_select(0, rows.long()),
+        lengths,
+    )
+    torch.testing.assert_close(actual, expected, atol=2e-2, rtol=2e-2)
+
+
 def test_triton_matches_existing_pytorch_paged_implementation() -> None:
     lengths = [1, 15, 16, 17, 31, 32, 33]
     config = ModelConfig(
