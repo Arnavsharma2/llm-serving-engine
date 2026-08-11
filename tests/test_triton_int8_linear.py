@@ -30,9 +30,9 @@ def test_fused_int8_matches_reference_for_qwen_shapes(
     generator = torch.Generator(device="cuda").manual_seed(101 + rows + out_features)
     source = nn.Linear(in_features, out_features, bias=out_features <= 1536).cuda().half()
     with torch.no_grad():
-        source.weight.normal_(generator=generator)
+        source.weight.normal_(mean=0.0, std=0.02, generator=generator)
         if source.bias is not None:
-            source.bias.normal_(generator=generator)
+            source.bias.normal_(mean=0.0, std=0.02, generator=generator)
     layer = QuantizedLinear(source, 8, backend="triton").cuda().half()
     inputs = torch.randn(
         rows,
