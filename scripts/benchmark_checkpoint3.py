@@ -6,6 +6,7 @@ import csv
 import hashlib
 import json
 import statistics
+import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -387,6 +388,8 @@ async def main() -> None:
     parser.add_argument("--num-blocks", type=int, default=512)
     parser.add_argument("--output", default="artifacts/checkpoint3-t4.json")
     parser.add_argument("--skip-operator-profile", action="store_true")
+    parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--source-revision")
     args = parser.parse_args()
     if args.repetitions < 5:
         raise ValueError("Checkpoint 3 requires at least five repetitions")
@@ -397,21 +400,48 @@ async def main() -> None:
     model = load_qwen2(args.model, device="cuda", dtype=torch.float16)
     tokenizer = HuggingFaceTokenizer(args.model)
     experiments = build_experiments(args.batch_sizes)
+    revision = (
+        args.source_revision
+        or subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+    )
     environment = {
         "gpu": torch.cuda.get_device_name(0),
         "torch": torch.__version__,
         "cuda": torch.version.cuda,
         "model": args.model,
+        "source_revision": revision,
     }
     config = vars(args)
     rows: list[dict[str, object]] = []
     requests: list[dict[str, object]] = []
     output = Path(args.output)
 
+    if args.resume and output.exists():
+        existing = json.loads(output.read_text())
+        rows = existing["rows"]
+        requests = existing["requests"]
+        existing_environment = existing.get("environment", {})
+        for key in ("gpu", "torch", "cuda", "model"):
+            if existing_environment.get(key) != environment[key]:
+                raise ValueError(
+                    f"Cannot resume with different {key}: "
+                    f"{existing_environment.get(key)!r} != {environment[key]!r}"
+                )
+        print(f"CHECKPOINT3_RESUME {len(rows)} rows", flush=True)
+
+    completed = {(str(row["experiment"]), int(row["repeat"])) for row in rows}
+
     for experiment in experiments:
+        missing_repeats = [
+            repeat
+            for repeat in range(args.repetitions)
+            if (experiment.name, repeat) not in completed
+        ]
+        if not missing_repeats:
+            continue
         load_profile = profile_for(experiment, model.config.vocab_size, args.seed)
         await warmup(model, tokenizer, experiment, args.seed, args.num_blocks)
-        for repeat in range(args.repetitions):
+        for repeat in missing_repeats:
             summary, request_rows = await run_experiment(
                 model,
                 tokenizer,
