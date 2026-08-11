@@ -67,7 +67,7 @@ def load_wikitext_tokens(tokenizer, *, split: str = "test", limit: int | None = 
         from datasets import load_dataset
     except ImportError as error:
         raise ImportError("install llm-serving-engine[eval] to load WikiText") from error
-    rows = load_dataset("wikitext", "wikitext-2-raw-v1", split=split)
+    rows = load_dataset("Salesforce/wikitext", "wikitext-2-raw-v1", split=split)
     text = "\n\n".join(row["text"] for row in rows if row["text"].strip())
     tokens = tokenizer.encode(text)
     return tokens[:limit] if limit else tokens

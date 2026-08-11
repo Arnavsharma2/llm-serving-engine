@@ -107,7 +107,7 @@ def main() -> None:
             or subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
         },
         "corpus": {
-            "dataset": "wikitext/wikitext-2-raw-v1",
+            "dataset": "Salesforce/wikitext/wikitext-2-raw-v1",
             "split": args.dataset_split,
             "model": args.model,
             "model_revision": args.model_revision,
