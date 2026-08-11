@@ -25,17 +25,23 @@ def _load_runtime(args):
     from llmserve.checkpoint import load_qwen2
     from llmserve.config import ModelConfig
     from llmserve.model import Transformer
+    from llmserve.quantization import quantize_model
     from llmserve.tokenizer import ByteTokenizer, HuggingFaceTokenizer
 
     device = _device(args.device)
+    linear_backend = getattr(args, "linear_backend", "fp16")
     if args.model:
         dtype = torch.float16 if device.type in {"cuda", "mps"} else torch.float32
-        model = load_qwen2(args.model, device=str(device), dtype=dtype)
+        load_device = "cpu" if linear_backend != "fp16" else str(device)
+        model = load_qwen2(args.model, device=load_device, dtype=dtype)
         tokenizer = HuggingFaceTokenizer(args.model)
     else:
         tokenizer = ByteTokenizer()
         torch.manual_seed(args.seed)
         model = Transformer(ModelConfig.tiny(tokenizer.vocab_size)).to(device).eval()
+    if linear_backend != "fp16":
+        backend = "reference" if linear_backend == "reference-int8" else "triton"
+        model = quantize_model(model, 8, backend=backend, inplace=True).to(device).eval()
     return model, tokenizer, device
 
 
@@ -258,6 +264,11 @@ def build_parser() -> argparse.ArgumentParser:
     benchmark.add_argument(
         "--paged-attention-backend", choices=("pytorch", "triton"), default="pytorch"
     )
+    benchmark.add_argument(
+        "--linear-backend",
+        choices=("fp16", "reference-int8", "triton-int8"),
+        default="fp16",
+    )
     benchmark.add_argument("--seed", type=int, default=7)
     benchmark.add_argument("--output", default="artifacts/benchmark.json")
 
@@ -293,6 +304,11 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--max-tokens-per-step", type=int, default=2048)
     serve.add_argument(
         "--paged-attention-backend", choices=("pytorch", "triton"), default="pytorch"
+    )
+    serve.add_argument(
+        "--linear-backend",
+        choices=("fp16", "reference-int8", "triton-int8"),
+        default="fp16",
     )
     serve.add_argument("--policy", choices=("fcfs", "sjf", "priority"), default="fcfs")
     serve.add_argument("--log-level", default="info")

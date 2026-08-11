@@ -9,6 +9,7 @@ from llmserve.config import CacheConfig, ModelConfig, SchedulerConfig
 from llmserve.engine import GenerationConfig, LLMEngine, sample_token, sample_tokens
 from llmserve.kv_cache import CacheFullError
 from llmserve.model import Transformer
+from llmserve.quantization import quantize_model
 from llmserve.scheduler import IterationScheduler, RequestState
 from llmserve.tokenizer import ByteTokenizer
 
@@ -26,6 +27,39 @@ def make_model() -> Transformer:
             max_position_embeddings=64,
         )
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("batch_size", [1, 2, 4, 8])
+async def test_int8_backends_preserve_deterministic_batched_streaming(batch_size: int) -> None:
+    prompts = [list(range(1, 6 + index)) for index in range(batch_size)]
+    outputs_by_backend = []
+    for backend in ("reference", "triton"):
+        model = quantize_model(make_model(), 8, backend=backend, inplace=True)
+        engine = LLMEngine(
+            model,
+            ByteTokenizer(),
+            cache_config=CacheConfig(2, 96),
+            scheduler_config=SchedulerConfig(max_batch_size=batch_size, max_tokens_per_step=32),
+            prefill_chunk_size=4,
+        )
+        streamed = [[] for _ in prompts]
+        outputs = await asyncio.gather(
+            *[
+                engine.generate(
+                    prompt,
+                    GenerationConfig(max_new_tokens=3, seed=41),
+                    streamed[index].append,
+                    request_id=f"{backend}-{index}",
+                )
+                for index, prompt in enumerate(prompts)
+            ]
+        )
+        await engine.close()
+        assert streamed == outputs
+        assert engine.cache.allocator.used_blocks == 0
+        outputs_by_backend.append(outputs)
+    assert outputs_by_backend[0] == outputs_by_backend[1]
 
 
 def test_batched_sampling_matches_reference_with_one_result_per_row() -> None:
